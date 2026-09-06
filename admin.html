@@ -1,0 +1,149 @@
+09.06 6:51 PM
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Craveman Admin Portal - Shaik Enterprises</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 font-sans text-slate-800 p-3 sm:p-6 max-w-6xl mx-auto">
+
+  <!-- Admin Top Bar -->
+  <div class="bg-indigo-900 text-white p-4 sm:p-5 rounded-2xl shadow-md mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+    <div>
+      <div class="flex items-center gap-2">
+        <span class="text-xl sm:text-2xl font-black uppercase tracking-wider">Craveman Live Admin</span>
+        <span class="bg-emerald-500 text-[10px] font-black uppercase px-2 py-0.5 rounded-full text-white tracking-widest animate-pulse">Live</span>
+      </div>
+      <p class="text-xs text-indigo-200 mt-0.5">Shaik Enterprises, Adoni — Field DSR Real-time Monitor</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <span id="syncTime" class="text-[11px] text-indigo-200 font-mono">Syncing...</span>
+      <button onclick="fetchCloudOrders()" class="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow">
+        <span> Refresh</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Real-Time Metrics -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+      <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Sales</span>
+      <div id="admSales" class="text-xl sm:text-2xl font-black text-indigo-900 mt-1">₹0.00</div>
+    </div>
+    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+      <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Cash Collected</span>
+      <div id="admCash" class="text-xl sm:text-2xl font-black text-emerald-600 mt-1">₹0.00</div>
+    </div>
+    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+      <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">UPI Received</span>
+      <div id="admUpi" class="text-xl sm:text-2xl font-black text-blue-600 mt-1">₹0.00</div>
+    </div>
+    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+      <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Boxes Sold</span>
+      <div id="admBoxes" class="text-xl sm:text-2xl font-black text-amber-600 mt-1">0</div>
+    </div>
+  </div>
+
+  <!-- Orders Stream Table -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+    <div class="flex justify-between items-center mb-3">
+      <h2 class="text-xs font-black uppercase text-slate-700 tracking-wider">Today's Field Orders & Deliveries</h2>
+      <span id="orderCountBadge" class="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-0.5 rounded-full border">0 Orders</span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs border-collapse min-w-[650px]">
+        <thead>
+          <tr class="border-b bg-slate-50 text-slate-500 uppercase font-bold text-[11px]">
+            <th class="p-2.5">Time</th>
+            <th class="p-2.5">Bill No</th>
+            <th class="p-2.5">Shop & Beat</th>
+            <th class="p-2.5">Salesman</th>
+            <th class="p-2.5">Boxes</th>
+            <th class="p-2.5">Bill Amount</th>
+            <th class="p-2.5">Payment Split</th>
+            <th class="p-2.5">Location</th>
+          </tr>
+        </thead>
+        <tbody id="ordersTableBody" class="divide-y divide-slate-100">
+          <tr>
+            <td colspan="8" class="p-6 text-center text-slate-400 font-medium">Fetching live orders from Google Sheets...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1-YWUGUFI4bgs7zv6om6aE96IOWXE4X1uaKrYs_Os-Jg-i-9u0KhyDW6nnhSZmDzH/exec";
+
+    async function fetchCloudOrders() {
+      try {
+        const response = await fetch(SCRIPT_URL);
+        const orders = await response.json();
+
+        let totalSales = 0, totalCash = 0, totalUpi = 0, totalBoxes = 0;
+        const tbody = document.getElementById("ordersTableBody");
+        tbody.innerHTML = "";
+
+        if (!orders || orders.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400 font-medium">No field orders recorded yet.</td></tr>`;
+          document.getElementById("orderCountBadge").innerText = "0 Orders";
+          return;
+        }
+
+        document.getElementById("orderCountBadge").innerText = `${orders.length} Orders`;
+
+        // Reverse to show latest first
+        orders.slice().reverse().forEach(o => {
+          const boxes = parseInt(o.Boxes) || 0;
+          const total = parseFloat(o.Total) || 0;
+          const cash = parseFloat(o.Cash) || 0;
+          const upi = parseFloat(o.UPI) || 0;
+
+          totalSales += total;
+          totalCash += cash;
+          totalUpi += upi;
+          totalBoxes += boxes;
+
+          const tr = document.createElement("tr");
+          tr.className = "hover:bg-slate-50 transition";
+          tr.innerHTML = `
+            <td class="p-2.5 font-mono text-slate-500">${o.Time || '-'}</td>
+            <td class="p-2.5 font-black text-indigo-700">${o.BillNo || '-'}</td>
+            <td class="p-2.5">
+              <div class="font-bold text-slate-800">${o.Shop || '-'}</div>
+              <div class="text-[10px] text-slate-400">${o.Beat || '-'}</div>
+            </td>
+            <td class="p-2.5 font-medium text-slate-700">${o.Salesman || '-'}</td>
+            <td class="p-2.5 font-extrabold text-amber-700">${boxes}</td>
+            <td class="p-2.5 font-black text-indigo-900">₹${total.toFixed(2)}</td>
+            <td class="p-2.5 text-[11px]">
+              <span class="text-emerald-700 font-semibold"> ₹${cash}</span> | 
+              <span class="text-blue-700 font-semibold"> ₹${upi}</span>
+            </td>
+            <td class="p-2.5">
+              ${o.Maps && o.Maps.startsWith('http') ? `<a href="${o.Maps}" target="_blank" class="text-blue-600 underline font-bold"> Map</a>` : '<span class="text-slate-300">-</span>'}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        document.getElementById("admSales").innerText = `₹${totalSales.toFixed(2)}`;
+        document.getElementById("admCash").innerText = `₹${totalCash.toFixed(2)}`;
+        document.getElementById("admUpi").innerText = `₹${totalUpi.toFixed(2)}`;
+        document.getElementById("admBoxes").innerText = totalBoxes;
+        document.getElementById("syncTime").innerText = `Last update: ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}`;
+      } catch (err) {
+        console.error("Fetch Error:", err);
+      }
+    }
+
+    fetchCloudOrders();
+    setInterval(fetchCloudOrders, 15000); // Live poll every 15 seconds
+  </script>
+</body>
+</html>
+
