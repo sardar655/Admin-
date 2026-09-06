@@ -1,4 +1,3 @@
-09.06 6:51 PM
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -21,7 +20,7 @@
     <div class="flex items-center gap-2">
       <span id="syncTime" class="text-[11px] text-indigo-200 font-mono">Syncing...</span>
       <button onclick="fetchCloudOrders()" class="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow">
-        <span> Refresh</span>
+        <span>🔄 Refresh</span>
       </button>
     </div>
   </div>
@@ -64,12 +63,13 @@
             <th class="p-2.5">Boxes</th>
             <th class="p-2.5">Bill Amount</th>
             <th class="p-2.5">Payment Split</th>
+            <th class="p-2.5">Items / Reason</th>
             <th class="p-2.5">Location</th>
           </tr>
         </thead>
         <tbody id="ordersTableBody" class="divide-y divide-slate-100">
           <tr>
-            <td colspan="8" class="p-6 text-center text-slate-400 font-medium">Fetching live orders from Google Sheets...</td>
+            <td colspan="9" class="p-6 text-center text-slate-400 font-medium">Fetching live orders from Google Sheets...</td>
           </tr>
         </tbody>
       </table>
@@ -79,33 +79,96 @@
   <script>
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1-YWUGUFI4bgs7zv6om6aE96IOWXE4X1uaKrYs_Os-Jg-i-9u0KhyDW6nnhSZmDzH/exec";
 
+    function extractField(row, keys, indexFallback) {
+      if (Array.isArray(row)) {
+        return row[indexFallback] !== undefined ? row[indexFallback] : '';
+      }
+      for (let k of Object.keys(row)) {
+        let cleanKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (let target of keys) {
+          if (cleanKey === target.toLowerCase().replace(/[^a-z0-9]/g, '')) {
+            return row[k];
+          }
+        }
+      }
+      let vals = Object.values(row);
+      return vals[indexFallback] !== undefined ? vals[indexFallback] : '';
+    }
+
     async function fetchCloudOrders() {
       try {
         const response = await fetch(SCRIPT_URL);
-        const orders = await response.json();
+        const rawOrders = await response.json();
 
         let totalSales = 0, totalCash = 0, totalUpi = 0, totalBoxes = 0;
         const tbody = document.getElementById("ordersTableBody");
         tbody.innerHTML = "";
 
-        if (!orders || orders.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400 font-medium">No field orders recorded yet.</td></tr>`;
+        if (!rawOrders || rawOrders.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-slate-400 font-medium">No field orders recorded yet.</td></tr>`;
           document.getElementById("orderCountBadge").innerText = "0 Orders";
           return;
         }
 
-        document.getElementById("orderCountBadge").innerText = `${orders.length} Orders`;
+        document.getElementById("orderCountBadge").innerText = `${rawOrders.length} Orders`;
 
-        // Reverse to show latest first
-        orders.slice().reverse().forEach(o => {
-          const boxes = parseInt(o.Boxes) || 0;
-          const total = parseFloat(o.Total) || 0;
-          const cash = parseFloat(o.Cash) || 0;
-          const upi = parseFloat(o.UPI) || 0;
+        rawOrders.slice().reverse().forEach(o => {
+          const time = extractField(o, ['Time', 'time'], 1) || '-';
+          const billNo = extractField(o, ['BillNo', 'billno', 'Bill'], 2) || '-';
+          const salesman = extractField(o, ['Salesman', 'salesman'], 3) || '-';
+          const shop = extractField(o, ['Shop', 'shop', 'ShopName'], 4) || '-';
+          const beat = extractField(o, ['Beat', 'beat', 'Area'], 5) || '-';
+          const boxes = parseInt(extractField(o, ['Boxes', 'boxes', 'box'], 6)) || 0;
+          const total = parseFloat(extractField(o, ['Total', 'total', 'Amount'], 7)) || 0;
+          const cash = parseFloat(extractField(o, ['Cash', 'cash'], 8)) || 0;
+          const upi = parseFloat(extractField(o, ['UPI', 'upi'], 9)) || 0;
+          const maps = String(extractField(o, ['Maps', 'maps', 'Location'], 11) || '');
+          const items = extractField(o, ['Items', 'items', 'Products'], 12) || '-';
 
           totalSales += total;
           totalCash += cash;
           totalUpi += upi;
+          totalBoxes += boxes;
+
+          const tr = document.createElement("tr");
+          tr.className = "hover:bg-slate-50 transition";
+          tr.innerHTML = `
+            <td class="p-2.5 font-mono text-slate-500">${time}</td>
+            <td class="p-2.5 font-black text-indigo-700">${billNo}</td>
+            <td class="p-2.5">
+              <div class="font-bold text-slate-800">${shop}</div>
+              <div class="text-[10px] text-slate-400">${beat}</div>
+            </td>
+            <td class="p-2.5 font-medium text-slate-700">${salesman}</td>
+            <td class="p-2.5 font-extrabold text-amber-700">${boxes}</td>
+            <td class="p-2.5 font-black text-indigo-900">₹${total.toFixed(2)}</td>
+            <td class="p-2.5 text-[11px]">
+              <span class="text-emerald-700 font-semibold">💵 ₹${cash}</span><br>
+              <span class="text-blue-700 font-semibold">📱 ₹${upi}</span>
+            </td>
+            <td class="p-2.5 text-[11px] text-slate-600 max-w-xs truncate" title="${items}">${items}</td>
+            <td class="p-2.5">
+              ${maps.startsWith('http') ? `<a href="${maps}" target="_blank" class="text-blue-600 underline font-bold">📍 Map</a>` : '<span class="text-slate-300">-</span>'}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        document.getElementById("admSales").innerText = `₹${totalSales.toFixed(2)}`;
+        document.getElementById("admCash").innerText = `₹${totalCash.toFixed(2)}`;
+        document.getElementById("admUpi").innerText = `₹${totalUpi.toFixed(2)}`;
+        document.getElementById("admBoxes").innerText = totalBoxes;
+        document.getElementById("syncTime").innerText = `Last update: ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}`;
+      } catch (err) {
+        console.error("Fetch Error:", err);
+      }
+    }
+
+    fetchCloudOrders();
+    setInterval(fetchCloudOrders, 15000);
+  </script>
+</body>
+</html>
           totalBoxes += boxes;
 
           const tr = document.createElement("tr");
