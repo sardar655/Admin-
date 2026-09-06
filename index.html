@@ -53,7 +53,7 @@
     </div>
 
     <div class="overflow-x-auto">
-      <table class="w-full text-left text-xs border-collapse min-w-[650px]">
+      <table class="w-full text-left text-xs border-collapse min-w-[700px]">
         <thead>
           <tr class="border-b bg-slate-50 text-slate-500 uppercase font-bold text-[11px]">
             <th class="p-2.5">Time</th>
@@ -63,7 +63,7 @@
             <th class="p-2.5">Boxes</th>
             <th class="p-2.5">Bill Amount</th>
             <th class="p-2.5">Payment Split</th>
-            <th class="p-2.5">Items / Reason</th>
+            <th class="p-2.5">Items</th>
             <th class="p-2.5">Location</th>
           </tr>
         </thead>
@@ -79,20 +79,14 @@
   <script>
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby1-YWUGUFI4bgs7zv6om6aE96IOWXE4X1uaKrYs_Os-Jg-i-9u0KhyDW6nnhSZmDzH/exec";
 
-    function extractField(row, keys, indexFallback) {
-      if (Array.isArray(row)) {
-        return row[indexFallback] !== undefined ? row[indexFallback] : '';
+    function cleanTime(str) {
+      if (!str) return '-';
+      str = String(str);
+      if (str.includes('T')) {
+        let parts = str.split('T')[1].replace('Z', '').split(':');
+        return `${parts[0]}:${parts[1]}`;
       }
-      for (let k of Object.keys(row)) {
-        let cleanKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-        for (let target of keys) {
-          if (cleanKey === target.toLowerCase().replace(/[^a-z0-9]/g, '')) {
-            return row[k];
-          }
-        }
-      }
-      let vals = Object.values(row);
-      return vals[indexFallback] !== undefined ? vals[indexFallback] : '';
+      return str.length > 8 ? str.substring(0, 8) : str;
     }
 
     async function fetchCloudOrders() {
@@ -106,6 +100,94 @@
 
         if (!rawOrders || rawOrders.length === 0) {
           tbody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-slate-400 font-medium">No field orders recorded yet.</td></tr>`;
+          document.getElementById("orderCountBadge").innerText = "0 Orders";
+          return;
+        }
+
+        document.getElementById("orderCountBadge").innerText = `${rawOrders.length} Orders`;
+
+        rawOrders.slice().reverse().forEach(row => {
+          let vals = Array.isArray(row) ? row : Object.values(row);
+
+          let billNo = '-', salesman = '-', shop = '-', beat = '-', items = '-', maps = '';
+          let time = '-', boxes = 0, total = 0, cash = 0, upi = 0;
+
+          // Smart auto-scanner: matches values accurately regardless of sheet column shifts
+          vals.forEach((v, idx) => {
+            let s = String(v).trim();
+            if (s.startsWith('CRV-') || s.startsWith('crv-')) {
+              billNo = s;
+            } else if (s.startsWith('http://maps') || s.startsWith('https://maps')) {
+              maps = s;
+            } else if (s.includes('(') && (s.includes('bxs') || s.includes('Cup') || s.includes('Cone') || s.includes('ml'))) {
+              items = s;
+            }
+          });
+
+          // Standard index assignments based on App Script column layout:
+          // [Date, Time, BillNo, Salesman, Shop, Beat, Boxes, Total, Cash, UPI, Balance, Maps, Items]
+          time = cleanTime(vals[1] || vals[0]);
+          if (billNo === '-') billNo = String(vals[2] || '-');
+          salesman = String(vals[3] || '-');
+          shop = String(vals[4] || '-');
+          beat = String(vals[5] || '-');
+          boxes = parseInt(vals[6]) || 0;
+          total = parseFloat(vals[7]) || 0;
+          cash = parseFloat(vals[8]) || 0;
+          upi = parseFloat(vals[9]) || 0;
+          if (!maps && String(vals[11]).startsWith('http')) maps = String(vals[11]);
+          if (items === '-' && vals[12]) items = String(vals[12]);
+
+          // Fallback if numbers are shifted
+          if (total === 0 && parseFloat(vals[6]) > 100) {
+            total = parseFloat(vals[6]) || 0;
+            boxes = parseInt(vals[5]) || 0;
+          }
+
+          totalSales += total;
+          totalCash += cash;
+          totalUpi += upi;
+          totalBoxes += boxes;
+
+          const tr = document.createElement("tr");
+          tr.className = "hover:bg-slate-50 transition";
+          tr.innerHTML = `
+            <td class="p-2.5 font-mono text-slate-500">${time}</td>
+            <td class="p-2.5 font-black text-indigo-700">${billNo}</td>
+            <td class="p-2.5">
+              <div class="font-bold text-slate-800">${shop}</div>
+              <div class="text-[10px] text-slate-400">${beat}</div>
+            </td>
+            <td class="p-2.5 font-medium text-slate-700">${salesman}</td>
+            <td class="p-2.5 font-extrabold text-amber-700">${boxes}</td>
+            <td class="p-2.5 font-black text-indigo-900">₹${total.toFixed(2)}</td>
+            <td class="p-2.5 text-[11px]">
+              <span class="text-emerald-700 font-semibold">💵 ₹${cash}</span><br>
+              <span class="text-blue-700 font-semibold">📱 ₹${upi}</span>
+            </td>
+            <td class="p-2.5 text-[11px] text-slate-600 max-w-xs truncate" title="${items}">${items}</td>
+            <td class="p-2.5">
+              ${maps.startsWith('http') ? `<a href="${maps}" target="_blank" class="text-blue-600 underline font-bold">📍 Map</a>` : '<span class="text-slate-300">-</span>'}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        document.getElementById("admSales").innerText = `₹${totalSales.toFixed(2)}`;
+        document.getElementById("admCash").innerText = `₹${totalCash.toFixed(2)}`;
+        document.getElementById("admUpi").innerText = `₹${totalUpi.toFixed(2)}`;
+        document.getElementById("admBoxes").innerText = totalBoxes;
+        document.getElementById("syncTime").innerText = `Last update: ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}`;
+      } catch (err) {
+        console.error("Fetch Error:", err);
+      }
+    }
+
+    fetchCloudOrders();
+    setInterval(fetchCloudOrders, 15000);
+  </script>
+</body>
+</html>
           document.getElementById("orderCountBadge").innerText = "0 Orders";
           return;
         }
